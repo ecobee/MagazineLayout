@@ -262,6 +262,8 @@ public final class MagazineLayout: UICollectionViewLayout {
   }
 
   override public func prepare(forCollectionViewUpdates updateItems: [UICollectionViewUpdateItem]) {
+    saveCurrentLayoutAttributesAsPreviousLayoutAttributes()
+
     var updates = [CollectionViewUpdate<SectionModel, ItemModel>]()
 
     for updateItem in updateItems {
@@ -337,11 +339,24 @@ public final class MagazineLayout: UICollectionViewLayout {
 
     super.prepare(forCollectionViewUpdates: updateItems)
   }
-
+    
   override public func finalizeCollectionViewUpdates() {
+    clearPreviousLayoutAttributes()
     modelState.clearInProgressBatchUpdateState()
-
+        
     super.finalizeCollectionViewUpdates()
+  }
+    
+  override public func prepare(forAnimatedBoundsChange oldBounds: CGRect) {
+    saveCurrentLayoutAttributesAsPreviousLayoutAttributes()
+        
+    super.prepare(forAnimatedBoundsChange: oldBounds)
+  }
+    
+  override public func finalizeAnimatedBoundsChange() {
+    clearPreviousLayoutAttributes()
+        
+    super.finalizeAnimatedBoundsChange()
   }
 
   override public func layoutAttributesForElements(
@@ -766,6 +781,13 @@ public final class MagazineLayout: UICollectionViewLayout {
   private var footerLayoutAttributes = [ElementLocation: MagazineLayoutCollectionViewLayoutAttributes]()
   private var backgroundLayoutAttributes = [ElementLocation: MagazineLayoutCollectionViewLayoutAttributes]()
 
+  // The previous layout attributes from before batch updates started
+  // Used in `initialLayoutAttributesForAppearing*` and `finalLayoutAttributesForDisappearing*`
+  private var previousItemLayoutAttributes = [ElementLocation: MagazineLayoutCollectionViewLayoutAttributes]()
+  private var previousHeaderLayoutAttributes = [ElementLocation: MagazineLayoutCollectionViewLayoutAttributes]()
+  private var previousFooterLayoutAttributes = [ElementLocation: MagazineLayoutCollectionViewLayoutAttributes]()
+  private var previousBackgroundLayoutAttributes = [ElementLocation: MagazineLayoutCollectionViewLayoutAttributes]()
+
   private struct PrepareActions: OptionSet {
     let rawValue: UInt
 
@@ -959,19 +981,49 @@ public final class MagazineLayout: UICollectionViewLayout {
     }
   }
 
+  private func saveCurrentLayoutAttributesAsPreviousLayoutAttributes() {
+    for (itemLocation, layoutAttributes) in itemLayoutAttributes {
+      let copiedLayoutAttributes = layoutAttributes.copy() as? MagazineLayoutCollectionViewLayoutAttributes
+      previousItemLayoutAttributes[itemLocation] = copiedLayoutAttributes
+    }
+
+    for (headerLocation, layoutAttributes) in headerLayoutAttributes {
+      let copiedLayoutAttributes = layoutAttributes.copy() as? MagazineLayoutCollectionViewLayoutAttributes
+      previousHeaderLayoutAttributes[headerLocation] = copiedLayoutAttributes
+    }
+
+    for (footerLocation, layoutAttributes) in footerLayoutAttributes {
+      let copiedLayoutAttributes = layoutAttributes.copy() as? MagazineLayoutCollectionViewLayoutAttributes
+      previousFooterLayoutAttributes[footerLocation] = copiedLayoutAttributes
+    }
+
+    for (backgroundLocation, layoutAttributes) in backgroundLayoutAttributes {
+      let copiedLayoutAttributes = layoutAttributes.copy() as? MagazineLayoutCollectionViewLayoutAttributes
+      previousBackgroundLayoutAttributes[backgroundLocation] = copiedLayoutAttributes
+    }
+  }
+
+  private func clearPreviousLayoutAttributes() {
+    previousHeaderLayoutAttributes.removeAll()
+    previousFooterLayoutAttributes.removeAll()
+    previousBackgroundLayoutAttributes.removeAll()
+    previousItemLayoutAttributes.removeAll()
+  }
+
   private func previousLayoutAttributesForItem(
     at indexPath: IndexPath)
     -> UICollectionViewLayoutAttributes?
   {
-    let layoutAttributes = MagazineLayoutCollectionViewLayoutAttributes(forCellWith: indexPath)
-
     guard modelState.isPerformingBatchUpdates else {
       // TODO(bryankeller): Look into whether this happens on iOS 10. It definitely does on iOS 9.
 
       // Returning `nil` rather than default/frameless layout attributes causes internal exceptions
-      // within `UICollecionView`, which is why we don't return `nil` here.
-      return layoutAttributes
+      // within `UICollectionView`, which is why we don't return `nil` here.
+      return MagazineLayoutCollectionViewLayoutAttributes(forCellWith: indexPath)
     }
+
+    let itemLocation = ElementLocation(indexPath: indexPath)
+    let layoutAttributes = previousItemLayoutAttributes[itemLocation]
 
     guard
       indexPath.section < modelState.numberOfSections(.beforeUpdates),
@@ -987,7 +1039,7 @@ public final class MagazineLayout: UICollectionViewLayout {
       return layoutAttributes
     }
 
-    layoutAttributes.frame = modelState.frameForItem(
+    layoutAttributes?.frame = modelState.frameForItem(
       at: ElementLocation(indexPath: indexPath),
       .beforeUpdates)
 
@@ -999,16 +1051,14 @@ public final class MagazineLayout: UICollectionViewLayout {
     at indexPath: IndexPath)
     -> UICollectionViewLayoutAttributes?
   {
-    let layoutAttributes = MagazineLayoutCollectionViewLayoutAttributes(
-      forSupplementaryViewOfKind: elementKind,
-      with: indexPath)
-
     guard modelState.isPerformingBatchUpdates else {
       // TODO(bryankeller): Look into whether this happens on iOS 10. It definitely does on iOS 9.
 
       // Returning `nil` rather than default/frameless layout attributes causes internal exceptions
-      // within `UICollecionView`, which is why we don't return `nil` here.
-      return layoutAttributes
+      // within `UICollectionView`, which is why we don't return `nil` here.
+      return MagazineLayoutCollectionViewLayoutAttributes(
+        forSupplementaryViewOfKind: elementKind,
+        with: indexPath)
     }
 
     guard indexPath.section < modelState.numberOfSections(.beforeUpdates) else {
@@ -1018,36 +1068,50 @@ public final class MagazineLayout: UICollectionViewLayout {
       assertionFailure("`\(indexPath.section)` is out of bounds of the section models array.")
 
       // Returning `nil` rather than default/frameless layout attributes causes internal exceptions
-      // within `UICollecionView`, which is why we don't return `nil` here.
-      return layoutAttributes
+      // within `UICollectionView`, which is why we don't return `nil` here.
+      return MagazineLayoutCollectionViewLayoutAttributes(
+        forSupplementaryViewOfKind: elementKind,
+        with: indexPath)
     }
+
+    let elementLocation = ElementLocation(indexPath: indexPath)
 
     if
       elementKind == MagazineLayout.SupplementaryViewKind.sectionHeader,
+      let headerLayoutAttributes = previousHeaderLayoutAttributes[elementLocation],
       let headerFrame = modelState.frameForHeader(
-        inSectionAtIndex: indexPath.section,
+        inSectionAtIndex: elementLocation.sectionIndex,
         .beforeUpdates)
     {
-      layoutAttributes.frame = headerFrame
+      headerLayoutAttributes.frame = headerFrame
+      return headerLayoutAttributes
     } else if
       elementKind == MagazineLayout.SupplementaryViewKind.sectionFooter,
+      let footerLayoutAttributes = previousFooterLayoutAttributes[elementLocation],
       let footerFrame = modelState.frameForFooter(
-        inSectionAtIndex: indexPath.section,
+        inSectionAtIndex: elementLocation.sectionIndex,
         .beforeUpdates)
     {
-      layoutAttributes.frame = footerFrame
+      footerLayoutAttributes.frame = footerFrame
+      return footerLayoutAttributes
     } else if
       elementKind == MagazineLayout.SupplementaryViewKind.sectionBackground,
+      let backgroundLayoutAttributes = previousBackgroundLayoutAttributes[elementLocation],
       let backgroundFrame = modelState.frameForBackground(
-        inSectionAtIndex: indexPath.section,
+        inSectionAtIndex: elementLocation.sectionIndex,
         .beforeUpdates)
     {
-      layoutAttributes.frame = backgroundFrame
+      backgroundLayoutAttributes.frame = backgroundFrame
+      return backgroundLayoutAttributes
     } else {
       assertionFailure("\(elementKind) is not a valid supplementary view element kind.")
+
+      // Returning `nil` rather than default/frameless layout attributes causes internal exceptions
+      // within `UICollectionView`, which is why we don't return `nil` here.
+      return MagazineLayoutCollectionViewLayoutAttributes(
+        forSupplementaryViewOfKind: elementKind,
+        with: indexPath)
     }
-    
-    return layoutAttributes
   }
 
 }
