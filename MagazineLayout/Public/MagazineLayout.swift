@@ -374,7 +374,15 @@ public final class MagazineLayout: UICollectionViewLayout {
         continue
       }
 
-      layoutAttributes.frame = headerFrame
+        var frame = headerFrame
+
+        if let refreshControl = currentCollectionView.refreshControl,
+            refreshControl.isRefreshing
+        {
+            frame.origin.y -= refreshControl.bounds.size.height
+        }
+
+      layoutAttributes.frame = frame
       layoutAttributesInRect.append(layoutAttributes)
 
     }
