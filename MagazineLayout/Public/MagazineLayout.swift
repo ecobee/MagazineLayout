@@ -377,7 +377,7 @@ public final class MagazineLayout: UICollectionViewLayout {
         var frame = headerFrame
 
         if let refreshControl = currentCollectionView.refreshControl,
-        currentCollectionView.isDragging && refreshControl.isRefreshing
+            currentCollectionView.isDragging && refreshControl.isRefreshing && currentCollectionView.isDecelerating
         {
             frame.origin.y -= refreshControl.bounds.size.height
         }
